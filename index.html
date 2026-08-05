@@ -304,6 +304,36 @@
   footer.page-foot .foot-note{
     margin-top:12px; font-size:12px; color:var(--text-faint);
   }
+
+  /* ---------- Password modal ---------- */
+  .modal-overlay{
+    display:none; position:fixed; inset:0; background:rgba(0,0,0,.5);
+    align-items:center; justify-content:center; z-index:1000; padding:20px;
+    backdrop-filter:blur(2px);
+  }
+  .modal-overlay.open{ display:flex; }
+  .modal{
+    background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
+    box-shadow:var(--shadow-lg); padding:24px; width:100%; max-width:340px;
+  }
+  .modal h2{ margin:0 0 6px; font-size:16px; font-weight:600; }
+  .modal p{ margin:0 0 14px; font-size:13px; color:var(--text-muted); line-height:1.5; }
+  .modal input[type="password"]{
+    width:100%; padding:9px 12px; border-radius:var(--radius-sm);
+    border:1px solid var(--border); background:var(--bg); color:var(--text);
+    font-size:14px; outline:none; transition:border-color .15s, box-shadow .15s;
+  }
+  .modal input[type="password"]:focus{ border-color:var(--border-strong); box-shadow:0 0 0 3px var(--ring); }
+  .modal-error{ display:none; color:#dc2626; margin:8px 0 0; font-size:12.5px; }
+  .modal.shake .modal-error{ display:block; }
+  .modal-actions{ display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
+  @keyframes shake{
+    10%,90%{ transform:translateX(-1px); }
+    20%,80%{ transform:translateX(2px); }
+    30%,50%,70%{ transform:translateX(-4px); }
+    40%,60%{ transform:translateX(4px); }
+  }
+  .modal.shake{ animation:shake .4s; }
 </style>
 </head>
 <body>
@@ -347,6 +377,19 @@
     <div class="logo-band"><img src="without Sparkle Logo.png" alt="Pikorua — Good People, Great Properties" /></div>
     <p class="foot-note">Pikorua apps index · last synced manually</p>
   </footer>
+</div>
+
+<div class="modal-overlay" id="pwOverlay">
+  <form class="modal" id="pwModal">
+    <h2>Enter edit password</h2>
+    <p>Editing this dashboard's layout and content is password-protected.</p>
+    <input type="password" id="pwInput" autocomplete="current-password" placeholder="Password" />
+    <p class="modal-error" id="pwError">Wrong password — try again.</p>
+    <div class="modal-actions">
+      <button type="button" class="btn" id="pwCancel">Cancel</button>
+      <button type="submit" class="btn primary">Unlock</button>
+    </div>
+  </form>
 </div>
 
 <script>
@@ -762,20 +805,66 @@
   }
 
   // Edit mode is gated by a shared password so random visitors can't rearrange
-  // or rewrite cards. This is a light deterrent, not real security (it's
-  // plain text right here in the page source) — change it whenever you like.
-  var EDIT_PASSWORD = "Pikorua@123";
+  // or rewrite cards. Only the SHA-256 hash lives in this file, never the
+  // plain password — this is still a client-side deterrent, not real
+  // security (the hash is crackable given enough effort), but it stops
+  // anyone from just reading the password off the page source.
+  //
+  // To change the password: open devtools console anywhere and run
+  //   await crypto.subtle.digest('SHA-256', new TextEncoder().encode('yourNewPassword'))
+  //     .then(b => [...new Uint8Array(b)].map(x => x.toString(16).padStart(2,'0')).join(''))
+  // then paste the result below.
+  var EDIT_PASSWORD_HASH = "cc7fd4121cfc1a2e030468b2259fc5992cdcde9bc1e10b5adc8622ef185d1e85";
   var UNLOCK_KEY = "pikorua-dashboard-unlocked";
 
-  document.getElementById("editToggleBtn").addEventListener("click", function(){
+  async function sha256Hex(text){
+    var buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+    return Array.prototype.map.call(new Uint8Array(buf), function(b){ return b.toString(16).padStart(2, "0"); }).join("");
+  }
+
+  var pwOverlay = document.getElementById("pwOverlay");
+  var pwModal = document.getElementById("pwModal");
+  var pwInput = document.getElementById("pwInput");
+  var pwResolve = null;
+
+  function askPassword(){
+    return new Promise(function(resolve){
+      pwResolve = resolve;
+      pwInput.value = "";
+      pwModal.classList.remove("shake");
+      pwOverlay.classList.add("open");
+      setTimeout(function(){ pwInput.focus(); }, 50);
+    });
+  }
+  function closePwModal(result){
+    pwOverlay.classList.remove("open");
+    if(pwResolve){ pwResolve(result); pwResolve = null; }
+  }
+  document.getElementById("pwCancel").addEventListener("click", function(){ closePwModal(false); });
+  pwOverlay.addEventListener("click", function(e){ if(e.target === pwOverlay) closePwModal(false); });
+  pwModal.addEventListener("submit", async function(e){
+    e.preventDefault();
+    var hash = await sha256Hex(pwInput.value);
+    if(hash === EDIT_PASSWORD_HASH){
+      sessionStorage.setItem(UNLOCK_KEY, "1");
+      closePwModal(true);
+    }else{
+      pwModal.classList.remove("shake");
+      void pwModal.offsetWidth; // restart animation
+      pwModal.classList.add("shake");
+      pwInput.select();
+    }
+  });
+
+  async function requireUnlock(){
+    if(sessionStorage.getItem(UNLOCK_KEY) === "1") return true;
+    return await askPassword();
+  }
+
+  document.getElementById("editToggleBtn").addEventListener("click", async function(){
     if(!editing){
-      var unlocked = sessionStorage.getItem(UNLOCK_KEY) === "1";
-      if(!unlocked){
-        var pw = prompt("Enter the edit password:");
-        if(pw === null) return;
-        if(pw !== EDIT_PASSWORD){ alert("Wrong password."); return; }
-        sessionStorage.setItem(UNLOCK_KEY, "1");
-      }
+      var ok = await requireUnlock();
+      if(!ok) return;
     }
     editing = !editing;
     document.body.classList.toggle("editing", editing);
@@ -784,14 +873,9 @@
     render();
   });
 
-  document.getElementById("resetOrderBtn").addEventListener("click", function(){
-    var unlocked = sessionStorage.getItem(UNLOCK_KEY) === "1";
-    if(!unlocked){
-      var pw = prompt("Enter the edit password:");
-      if(pw === null) return;
-      if(pw !== EDIT_PASSWORD){ alert("Wrong password."); return; }
-      sessionStorage.setItem(UNLOCK_KEY, "1");
-    }
+  document.getElementById("resetOrderBtn").addEventListener("click", async function(){
+    var ok = await requireUnlock();
+    if(!ok) return;
     if(!confirm("Reset layout, text edits and added apps back to default?")) return;
     state = { order:null, overrides:{}, custom:[], extraCategories:[] };
     saveState();
