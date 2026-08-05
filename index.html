@@ -255,6 +255,7 @@
   .url-row [contenteditable]:hover{ border-color:var(--text-faint); }
   .url-row [contenteditable]:focus{ border-style:solid; border-color:var(--text); background:var(--surface-2); }
   .url-row [contenteditable]:empty:before{ content:"add a url…"; color:var(--text-faint); }
+  .url-row.tutorial-row [contenteditable]:empty:before{ content:"add a tutorial url…"; }
 
   .card-foot{
     display:flex; align-items:center; justify-content:space-between; gap:8px;
@@ -460,6 +461,9 @@
   function svgX(){
     return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>';
   }
+  function svgTutorial(){
+    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 2-3 4"/><path d="M12 17h.01"/></svg>';
+  }
 
   function escapeHtml(s){
     var d = document.createElement("div"); d.textContent = s || ""; return d.innerHTML;
@@ -619,6 +623,10 @@
           '<label>URL</label>' +
           '<div contenteditable="true" data-field="url">' + escapeHtml(app.url) + '</div>' +
         '</div>' +
+        '<div class="url-row tutorial-row">' +
+          '<label>Tutorial URL</label>' +
+          '<div contenteditable="true" data-field="tutorialUrl">' + escapeHtml(app.tutorialUrl || "") + '</div>' +
+        '</div>' +
       '</div>' +
       '<div class="card-foot">' +
         (app.status === "soon"
@@ -626,6 +634,7 @@
           : '<a class="open-link" href="' + escapeHtml(app.url) + '" target="_blank" rel="noopener noreferrer">Open app ' + svgExternal() + '</a>'
         ) +
         '<div style="display:flex;gap:4px;align-items:center;">' +
+          (app.tutorialUrl ? '<a class="icon-btn" href="' + escapeHtml(app.tutorialUrl) + '" target="_blank" rel="noopener noreferrer" title="Tutorial">' + svgTutorial() + '</a>' : '') +
           (app.phone ? '<a class="icon-btn" href="tel:' + escapeHtml(app.phone) + '" title="Call ' + escapeHtml(app.phone) + '">' + svgPhone() + '</a>' : '') +
           (editing ? '<button class="icon-btn" data-action="delete" title="Remove card">' + svgTrash() + '</button>' : '') +
         '</div>' +
@@ -636,6 +645,7 @@
     var descEl = card.querySelector('[data-field="description"]');
     var iconEl = card.querySelector('[data-field="icon"]');
     var urlEl = card.querySelector('[data-field="url"]');
+    var tutorialEl = card.querySelector('[data-field="tutorialUrl"]');
     nameEl.addEventListener("blur", function(){ updateOverride(app.id, "name", nameEl.textContent.trim()); });
     descEl.addEventListener("blur", function(){ updateOverride(app.id, "description", descEl.textContent.trim()); });
     nameEl.addEventListener("keydown", function(e){ if(e.key === "Enter"){ e.preventDefault(); nameEl.blur(); } });
@@ -649,6 +659,10 @@
       updateOverride(app.id, "url", urlEl.textContent.trim());
       var newStatus = urlEl.textContent.trim() ? "live" : app.status;
       updateOverride(app.id, "status", newStatus);
+      render();
+    });
+    tutorialEl.addEventListener("blur", function(){
+      updateOverride(app.id, "tutorialUrl", tutorialEl.textContent.trim());
       render();
     });
 
@@ -740,7 +754,7 @@
     var id = "custom-" + Date.now();
     state.custom.push({
       id:id, icon:"🧩", name:name, category:category, description:description,
-      url:url, status: url ? "live" : "soon"
+      url:url, tutorialUrl:"", status: url ? "live" : "soon"
     });
     if(state.order) state.order.push(id);
     saveState();
